@@ -1,5 +1,5 @@
 # virtual-kitchen-sql
-This project uses synthetic data with advanced SQL queries performed in Snowflake
+This project uses simulated data with advanced SQL to answer questions for Virtual Kitchen business. Snowflake is the datawarehouse hosting the data schema and executing SQL queries. 
 
 Virtual Kitchen is an interactive meal-delivery service. Virtual Kitchen currently operates in the United States. We need to use the city and state to identify the locations of our customers and suppliers.
 
