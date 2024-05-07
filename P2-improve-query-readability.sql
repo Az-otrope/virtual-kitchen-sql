@@ -1,7 +1,11 @@
--- 25 of our customers did not get their parsley
--- We have one store in Chicago, IL and one store in Gary, IN both ready to help out with this request.
--- The bottom of the original query was to identify the impacted customers -> into a cte
+-- **************************************************
+-- Impacted customers are from: KY - concord, georgetown, ashland; CA - oakland, pleasant hill; TX - arlington, brownsville
+-- Find each customer's #-food preference and their distance to Chicago and Gary stores
+-- **************************************************
+-- Rework
+-- **************************************************
 
+-- 1. customer id and name
 with customers as (
     select
         customer_id,
@@ -9,16 +13,21 @@ with customers as (
     from vk_data.customers.customer_data
 ),
 
-food_pref_cnt_per_cust as (
+-- 2. customer and food preference counts
+customer_food_pref_cnt as (
     select 
-        customer_id,
+        c.customer_id,
+        c.customer_name,
         count(*) as food_pref_count
-    from vk_data.customers.customer_survey
+    from vk_data.customers.customer_survey cs
+    inner join customers c
+        on cs.customer_id = c.customer_id
     where is_active = true
-    group by customer_id
+    group by 1, 2
 ),
 
-cities as (
+-- 3. US cities geography
+city_geo as (
     select
         lower(trim(city_name)) as city,
         lower(trim(state_abbr)) as state,
@@ -26,6 +35,29 @@ cities as (
     from vk_data.resources.us_cities
 ),
 
+-- 4. impacted customers from CA, TX, KY 
+impacted_customers as (
+    select
+        customer_id,
+        lower(trim(customer_city)) as impacted_city,
+        lower(trim(customer_state)) as impacted_state
+    from vk_data.customers.customer_address as ca
+    where (impacted_state = 'ca' and impacted_city in ('oakland', 'pleasant hill'))
+        or (impacted_state = 'ky' and impacted_city in ('concord', 'georgetown', 'ashland'))
+        or (impacted_state = 'tx' and impacted_city in ('arlington', 'brownsville'))
+),
+
+impacted_customers_geo as (
+    select
+        ic.*,
+        cg.geo_location
+    from impacted_customers as ic
+    left join city_geo as cg
+        on ic.impacted_city = cg.city
+        and ic.impacted_state = cg.state
+),
+
+-- 5. Chicago and Gary stores geo
 chicago_geo as (
     select 
         geo_location
@@ -38,42 +70,17 @@ gary_geo as (
         geo_location
     from vk_data.resources.us_cities 
     where city_name = 'GARY' and state_abbr = 'IN'
-),
-
-impacted_customers as (
-    select
-        customer_id,
-        lower(trim(customer_city)) as impacted_city,
-        lower(trim(customer_state)) as impacted_state
-    from vk_data.customers.customer_address
-    where 
-        (impacted_state = 'ky' and 
-            (impacted_city ilike '%concord%' or 
-            impacted_city ilike '%georgetown%' or 
-            impacted_city ilike '%ashland%')) or
-        (impacted_state = 'ca' and 
-            (impacted_city ilike '%oakland%' or 
-            impacted_city ilike '%pleasant hill%')) or
-        (impacted_state = 'tx' and 
-            (impacted_city ilike '%arlington%' or 
-            impacted_city ilike '%brownsville%'))
 )
-
-select
-    customers.customer_name,
-    initcap(impacted_customers.impacted_city) as customer_city,
-    upper(impacted_customers.impacted_state) as customer_state,
-    food_pref_cnt_per_cust.food_pref_count,
-    (st_distance(cities.geo_location, chicago_geo.geo_location) / 1609)::int as chicago_distance_miles,
-    (st_distance(cities.geo_location, gary_geo.geo_location) / 1609)::int as gary_distance_miles,
-from impacted_customers 
-inner join customers
-    on impacted_customers.customer_id = customers.customer_id
-left join cities
-    on impacted_customers.impacted_state = cities.state
-    and impacted_customers.impacted_city = cities.city
-inner join food_pref_cnt_per_cust
-    on customers.customer_id = food_pref_cnt_per_cust.customer_id
-cross join chicago_geo
-cross join gary_geo
-;
+    
+select 
+    cf.customer_name,
+    initcap(icg.impacted_city) as customer_city,
+    upper(icg.impacted_state) as customer_state,
+    cf.food_pref_count,
+    (st_distance(icg.geo_location, chicago.geo_location) / 1609)::int as chicago_distance_miles,
+    (st_distance(icg.geo_location, gary.geo_location) / 1609)::int as gary_distance_miles
+from customer_food_pref_cnt as cf
+inner join impacted_customers_geo as icg
+    on cf.customer_id = icg.customer_id
+cross join chicago_geo as chicago
+cross join gary_geo as gary
